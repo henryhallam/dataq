@@ -2,7 +2,7 @@
  * by Henry Hallam <henry@pericynthion.org>, 2016-06-07
  * Licensed under CC0 https://creativecommons.org/publicdomain/zero/1.0/
  * Or alternately under MIT License https://www.debian.org/legal/licenses/mit
- * 
+ *
  * You will probably want to adjust n_chans and fullscale below.
  *
  * This should be portable to any POSIX system (e.g. OSX, Windows with Cygwin),
@@ -24,8 +24,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netdb.h> 
-#include <errno.h> 
+#include <netdb.h>
+#include <errno.h>
 
 const int n_chans = 6;         // We'll poll the first N channels
 const float fullscale = 20.0;  // "Engineering units" full-scale (depends on installed input amplifier module)
@@ -59,7 +59,7 @@ static void do_cmd(const char *fmt, ...) {
   size_t len = vsnprintf(&cmd[1], sizeof(cmd) - 1, fmt, args);
   va_end (args);
   ssize_t n = write(sockfd, cmd, 1 + len);
-  if (n < 0) 
+  if (n < 0)
     error("ERROR writing to socket");
   if (n == 0) {
     fprintf(stderr, "EOF writing to socket\n");
@@ -68,7 +68,7 @@ static void do_cmd(const char *fmt, ...) {
 
   // Echo responses don't have the leading null
   n = recv(sockfd, resp, len, MSG_WAITALL);
-  if (n < 0) 
+  if (n < 0)
     error("ERROR reading from socket");
   if (n == 0) {
     fprintf(stderr, "EOF reading from socket\n");
@@ -113,10 +113,10 @@ int main(int argc, char **argv) {
     hostname = autodiscover();
   else
     hostname = argv[1];
-  
+
   // Create the socket
   sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if (sockfd < 0) 
+  if (sockfd < 0)
     error("Error creating socket");
 
   // Socket is opened in blocking mode, but we'll set a timeout for read/recv
@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
   }
 
   // Tell DAQ to stop streaming, then flush the buffer (might contain unwanted spam)
-  write(sockfd, "\0T0", 3);
+  if (write(sockfd, "\0T0", 3) == -1) {}
   usleep(222222);
   while (recv(sockfd, buf, sizeof(buf), MSG_DONTWAIT) > 0);
 
@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
   signal(SIGINT, &trap);
   signal(SIGHUP, &trap);
   signal(SIGTERM, &trap);
-  
+
   int n_rows = sizeof(buf) / (2 * n_chans);  // How many sets of samples per recv()
   while (!signalled) {
     int n = recv(sockfd, buf, n_rows * 2 * n_chans, MSG_WAITALL);
@@ -173,8 +173,9 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Expected %d bytes, read %d bytes\n", n_rows * 2 * n_chans, n);
       exit(EX_PROTOCOL);
     }
-    for (int i = 0; i < n_rows; i++) {
-      for (int j = 0; j < n_chans; j++) {
+    int i, j;
+    for (i = 0; i < n_rows; i++) {
+      for (j = 0; j < n_chans; j++) {
 	uint16_t v = buf[i * n_chans + j];
 	// Check for expected sync flags in least significant bits
 	uint16_t lsbs = v & 0x0101;
@@ -192,9 +193,9 @@ int main(int argc, char **argv) {
       printf("\n");
     }
   }
-  
+
   // Shut down cleanly by stopping the stream and flushing
-  write(sockfd, "\0T0", 3);
+  if (write(sockfd, "\0T0", 3) == -1) {}
   usleep(222222);
   while (recv(sockfd, buf, sizeof(buf), MSG_DONTWAIT) > 0);
   close(sockfd);
