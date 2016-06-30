@@ -20,5 +20,15 @@ Perhaps it will also work with the DI-718Bx 16-channel units or the DI-710 serie
 ## Build instructions
  `make`
 
-You'll probably want to edit the source to set the scaling and the
-number of channels to poll.
+If using as a standalone program, you'll probably want to edit the source
+to set the scaling and the number of channels to poll.
+
+To disable error messages, remove `-DEPRINT` in `Makefile`.
+
+To disable debug messages, remove `-DDPRINT` in `Makefile`.
+
+To use as a library (omit included `main()`), remove `-DUSE_MAIN` in `Makefile`,
+define `main()` in a separate file that includes `dataq.h`, and link with `dataq.o`.
+
+## Changes
+2016-06-29 [MC] Refactored into functions, created header
