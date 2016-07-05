@@ -61,9 +61,6 @@ static void trap(int sig)
  *  DATAQ interface
  */
 
-#define BUFSIZE 512   // Size of receive buffer
-#define MAXCHAN 32    // Maximum number of channels
-
 // Send an ASCII command to the device and check for correct echo response
 int dataq_cmd(int sockfd, const char *fmt, ...)
 {
@@ -119,15 +116,9 @@ int dataq_cmd(int sockfd, const char *fmt, ...)
 // Connect to and initialize a DATAQ device, and start streaming
 // On success, returns socket fd
 int dataq_connect(const char *hostname, const uint16_t portno,
-                  const int timerscaler, const int rate_divisor,
-                  const char *scanlist, const int n_chans)
+                  const uint32_t timerscaler, const uint32_t rate_divisor,
+                  const char *scanlist, const uint32_t n_chans)
 {
-  // Sanity check parameters
-  if (n_chans > MAXCHAN) {
-    eprintf("Requested %d channels exceeds maximum %d channels\n", n_chans, MAXCHAN);
-    return -EX_DATAERR;
-  }
-
   // Create the socket
   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd < 0) {
@@ -198,14 +189,14 @@ void dataq_close(int sockfd)
 }
 
 // Receive and parse data from a DATAQ device
-// Assumes values[] is of length == n_chans
+// Assumes buf[] is of length == bufsize >= n_chans
+// Populates buf[] with (int)(bufsize / n_chans) sample rows of data
+// Returns number of sample rows on success; <0 on failure
 // NOTE if tv != NULL, will populate from gettimeofday()
-int dataq_recv(int sockfd, float values[], const int n_chans,
-               const float fullscale, const float fudge, struct timeval *tv)
+int dataq_recv(int sockfd, uint16_t buf[], const uint32_t bufsize,
+               const uint32_t n_chans, struct timeval *tv)
 {
-  static uint16_t buf[BUFSIZE];
-
-  int n_bytes = 2 * n_chans;  // How many bytes per recv()
+  int n_bytes = (int)(bufsize / n_chans) * n_chans * sizeof(buf[0]);
 
   // Receive some data
   // NOTE catching common signals so we can abort cleanly
@@ -240,9 +231,19 @@ int dataq_recv(int sockfd, float values[], const int n_chans,
     return -EX_PROTOCOL;
   }
 
-  uint8_t c;
+  return (int)(bufsize / n_chans);
+}
+
+// Parse a single row from buf[] into values[]
+int dataq_parserow(float values[], const uint16_t buf[], const uint32_t n_chans,
+                   uint32_t row, const float fullscale, const float fudge)
+{
+  // Row offset into buffer[]
+  uint32_t offset = row * n_chans;
+
+  uint32_t c;
   for (c = 0; c < n_chans; c++) {
-    uint16_t v = buf[c];
+    uint16_t v = buf[offset+c];
 
     // Check for expected sync flags in least significant bits
     uint16_t lsbs = v & 0x0101;
@@ -321,22 +322,29 @@ int main(int argc, char **argv)
   signal(SIGTERM, &trap);
 
   while (!signalled) {
-    float values[MAXCHAN];
-    struct timeval tv;
+    uint16_t buffer[DATAQ_BUFSIZE];
 
-    int ret = dataq_recv(sockfd, values, n_chans, fullscale, fudge, &tv);
+    int rows = dataq_recv(sockfd, buffer, DATAQ_BUFSIZE, n_chans, NULL);
     if (signalled)
       break;
-    if (ret < 0)
+    if (rows < 0)
       continue;
 
-    printf("%llu.%06llu", (unsigned long long int)tv.tv_sec,
-                          (unsigned long long int)tv.tv_usec);
+    uint32_t r;
+    for (r=0; r<rows; r++) {
+      float values[n_chans];
 
-    uint8_t c;
-    for (c = 0; c < n_chans; c++)
-      printf(" %.3f", values[c]);
-    printf("\n");
+      if (signalled)
+        break;
+
+      if (dataq_parserow(values, buffer, n_chans, r, fullscale, fudge) < 0)
+        continue;
+
+      uint8_t c;
+      for (c = 0; c < n_chans; c++)
+        printf(" %.3f", values[c]);
+      printf("\n");
+    }
   }
 
   dataq_close(sockfd);
